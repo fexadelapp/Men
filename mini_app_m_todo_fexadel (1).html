@@ -1,0 +1,2101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Método FEXADEL - Autogobierno con Propósito</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Babel Standalone para JSX en navegador -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Import Map para React y Lucide Icons -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.2.0",
+      "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+      "lucide-react": "https://esm.sh/lucide-react@0.263.1?external=react"
+    }
+  }
+  </script>
+  <!-- Estilos personalizados para impresión y animaciones -->
+  <style>
+    @media print {
+      body { background: white !important; color: black !important; }
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      .print-card { border: 1px solid #ccc !important; background: #fff !important; color: #000 !important; box-shadow: none !important; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.25s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased min-h-screen p-2 md:p-6">
+  <!-- Contenedor principal de React -->
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      Shield, Compass, Target, ArrowRight, ArrowLeft, CheckCircle2, 
+      AlertTriangle, RefreshCw, Save, Trash2, Award, BookOpen, 
+      FileText, Check, Activity, Flame, Zap, 
+      RotateCcw, Copy, Sparkles, Loader2,
+      Sliders, MessageSquare, Send, Bot, Printer, Download,
+      Folder, FolderPlus, Volume2, Info, ShoppingBag, ExternalLink,
+      BookMarked, CreditCard, Lock, CheckCircle
+    } from 'lucide-react';
+
+    // Helper seguro para llamadas a la API de Gemini 2.5 Flash
+    const callGeminiAPI = async (prompt, systemInstruction = "") => {
+      const apiKey = "";
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }]
+      };
+      if (systemInstruction) {
+        payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+      }
+
+      let delay = 1000;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) throw new Error(`Error de red: ${res.status}`);
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text) return text;
+          throw new Error("Respuesta vacía de la API.");
+        } catch (err) {
+          if (attempt === 4) throw err;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2;
+        }
+      }
+    };
+
+    const SYSTEM_INSTRUCTION_FEXADEL = `Eres el copiloto virtual del Método FEXADEL de Fer Delgado (Autogobierno con Propósito).
+Tu tono es directo, quirúrgico, profesional, sin lenguaje de autoayuda ni motivacional vacío.
+Principios fundamentales:
+1. Ayudar a distinguir hechos objetivos de interpretaciones o narrativas dramatizadas.
+2. Identificar la causa raíz ("la X") que gobierna la conducta en secreto (miedos, mandatos, orgullo).
+3. Desmontar excusas mediante contrapreguntas disruptivas y exigir planes concretos, específicos y medibles.`;
+
+    const ETAPAS = [
+      { id: 1, key: 'F', nombre: 'Frenar', subtitulo: 'Generar confianza y salir del ruido', icon: Shield, color: 'text-sky-400 bg-sky-950/50 border-sky-800' },
+      { id: 2, key: 'E', nombre: 'Entender', subtitulo: 'Separar hechos de interpretaciones', icon: Compass, color: 'text-indigo-400 bg-indigo-950/50 border-indigo-800' },
+      { id: 3, key: 'X', nombre: 'Encontrar la X', subtitulo: 'Detectar la raíz que te está gobernando', icon: Target, color: 'text-amber-400 bg-amber-950/50 border-amber-800' },
+      { id: 4, key: 'A', nombre: 'Afirmar', subtitulo: 'Reconstruir percepción con evidencia', icon: Award, color: 'text-emerald-400 bg-emerald-950/50 border-emerald-800' },
+      { id: 5, key: 'D', nombre: 'Desmontar', subtitulo: 'Trabajar miedos y autosabotaje', icon: Flame, color: 'text-rose-400 bg-rose-950/50 border-rose-800' },
+      { id: 6, key: 'E', nombre: 'Ejecutar', subtitulo: 'Crear un plan posible y medible', icon: Zap, color: 'text-blue-400 bg-blue-950/50 border-blue-800' },
+      { id: 7, key: 'L', nombre: 'Liderarse', subtitulo: 'Decidir, evaluar y recalibrar', icon: Activity, color: 'text-purple-400 bg-purple-950/50 border-purple-800' }
+    ];
+
+    const BARRERAS_MAP = {
+      'Miedo al rechazo o fracaso': '«¿Qué es exactamente lo que se destruye si fracasas en este intento, tu vida o solo tu ego?»',
+      'Procrastinación por perfeccionismo': '«¿Buscar el momento perfecto te está protegiendo o te está manteniendo en la cobardía de no ser juzgado?»',
+      'Sentimiento de culpa o autosabotaje': '«¿Castigarte en el presente repara algo del pasado o solo te excusa de actuar hoy?»',
+      'Dependencia de la aprobación externa': '«¿Quién está dirigiendo tu vida si la opinión ajena define tu siguiente paso?»',
+      'Parálisis por exceso de análisis': '«¿Necesitas más información o lo que te falta es asumir la responsabilidad del riesgo?»'
+    };
+
+    // Catálogo oficial de eBooks
+    const LIBROS_PREMIUM_INICIALES = [
+      {
+        id: 'libro-1',
+        titulo: 'Cuando todo se va a la mierda',
+        subtitulo: 'Guía práctica de autogobierno y claridad en momentos de crisis profunda',
+        formato: 'eBook Digital (PDF & ePub)',
+        precio: 'Checkout Oficial',
+        badge: 'Hotmart',
+        puntosClave: [
+          'Herramientas para mantener el temple cuando la vida se desmorona.',
+          'Cómo salir de la parálisis y la confusión en situaciones límite.',
+          'Paso a paso para tomar decisiones conscientes sin pánico.'
+        ],
+        linkPago: 'https://pay.hotmart.com/W106168968U'
+      },
+      {
+        id: 'libro-2',
+        titulo: 'El hombre que no se arrodilla',
+        subtitulo: 'Recupera tu firmeza, carácter y soberanía ante las presiones del entorno',
+        formato: 'eBook Digital (PDF & ePub)',
+        precio: 'Checkout Oficial',
+        badge: 'Hotmart',
+        puntosClave: [
+          'Cómo dejar de vivir para complacer o ceder ante el chantaje emocional.',
+          'Principios de soberanía personal y carácter en relaciones y trabajo.',
+          'Estrategias directas para mantenerte firme en tus decisiones.'
+        ],
+        linkPago: 'https://pay.hotmart.com/T106280283B'
+      }
+    ];
+
+    const INITIAL_FORM_DATA = {
+      idCaso: Date.now(),
+      tituloCaso: 'Caso Actual de Autogobierno',
+      situacion: '',
+      emocionesDominantes: [],
+      safetyAlert: false,
+      hechosObjetivos: '',
+      miInterpretacion: '',
+      perspectivaAlternativa1: '',
+      perspectivaAlternativa2: '',
+      sintomaVisible: '',
+      preguntaSubyacente: '',
+      xRaiz: '',
+      creenciaHeredada: '',
+      esTuyoOAprendido: 'aprendido',
+      trampolinAprendizaje: '',
+      evidenciaCapacidadPasada: '',
+      barreraSeleccionada: 'Miedo al rechazo o fracaso',
+      otraBarrera: '',
+      respuestaContrapregunta: '',
+      planQue: '',
+      planCuando: '',
+      planComo: '',
+      planHito: '',
+      estadoEjecucion: 'pendiente',
+      evidenciaX: '',
+      reajusteX: ''
+    };
+
+    const INITIAL_PILARES = {
+      relaciones: 5,
+      trabajo: 5,
+      finanzas: 5,
+      futuro: 5
+    };
+
+    function App() {
+      const [tabActiva, setTabActiva] = useState('proceso');
+      const [pasoActual, setPasoActual] = useState(1);
+      
+      // Manejo seguro de LocalStorage para Google Sites (IFrame friendly)
+      const safeGetStorage = (key, fallback) => {
+        try {
+          const item = localStorage.getItem(key);
+          return item ? JSON.parse(item) : fallback;
+        } catch (e) {
+          return fallback;
+        }
+      };
+
+      const safeSetStorage = (key, val) => {
+        try {
+          localStorage.setItem(key, JSON.stringify(val));
+        } catch (e) {}
+      };
+
+      const [formData, setFormData] = useState(() => safeGetStorage('fexadel_active_session', INITIAL_FORM_DATA));
+      const [listaCasos, setListaCasos] = useState(() => safeGetStorage('fexadel_lista_casos', []));
+      const [pilares, setPilares] = useState(() => safeGetStorage('fexadel_pilares', INITIAL_PILARES));
+      const [bitacora, setBitacora] = useState(() => safeGetStorage('fexadel_bitacora', []));
+      const [libros] = useState(LIBROS_PREMIUM_INICIALES);
+
+      // Modales y Notificaciones
+      const [modalConfirm, setModalConfirm] = useState({ show: false, title: '', message: '', onConfirm: null });
+      const [toastMsg, setToastMsg] = useState({ show: false, text: '', type: 'info' });
+      const [modalPago, setModalPago] = useState({ show: false, libro: null });
+
+      // Estado de IA Gemini
+      const [loadingAI, setLoadingAI] = useState(null);
+      const [aiError, setAiError] = useState('');
+      const [auditoriaFeedback, setAuditoriaFeedback] = useState('');
+      const [escanerDiagnostico, setEscanerDiagnostico] = useState('');
+
+      // Copiloto Chat
+      const [chatMessages, setChatMessages] = useState([
+        { role: 'assistant', text: 'Hola. Soy el Copiloto FEXADEL. ¿En qué situación o decisión estás sintiendo parálisis o falta de autogobierno en este momento?' }
+      ]);
+      const [inputChat, setInputChat] = useState('');
+      const chatEndRef = useRef(null);
+
+      useEffect(() => { safeSetStorage('fexadel_active_session', formData); }, [formData]);
+      useEffect(() => { safeSetStorage('fexadel_lista_casos', listaCasos); }, [listaCasos]);
+      useEffect(() => { safeSetStorage('fexadel_pilares', pilares); }, [pilares]);
+      useEffect(() => { safeSetStorage('fexadel_bitacora', bitacora); }, [bitacora]);
+
+      useEffect(() => {
+        if (tabActiva === 'copiloto' && chatEndRef.current) {
+          chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, [chatMessages, tabActiva]);
+
+      const indiceAutogobierno = useMemo(() => {
+        const suma = pilares.relaciones + pilares.trabajo + pilares.finanzas + pilares.futuro;
+        return Math.round((suma / 40) * 100);
+      }, [pilares]);
+
+      const pilarCritico = useMemo(() => {
+        const items = [
+          { nombre: 'Relaciones & Entorno', valor: pilares.relaciones, key: 'relaciones' },
+          { nombre: 'Trabajo & Propósito', valor: pilares.trabajo, key: 'trabajo' },
+          { nombre: 'Economía & Autonomía', valor: pilares.finanzas, key: 'finanzas' },
+          { nombre: 'Futuro & Decisión Propia', valor: pilares.futuro, key: 'futuro' }
+        ];
+        return items.sort((a, b) => a.valor - b.valor)[0];
+      }, [pilares]);
+
+      const etapaActualInfo = useMemo(() => {
+        return ETAPAS.find(e => e.id === pasoActual) || ETAPAS[0];
+      }, [pasoActual]);
+
+      const showToast = (text, type = 'info') => {
+        setToastMsg({ show: true, text, type });
+        setTimeout(() => setToastMsg({ show: false, text: '', type: 'info' }), 3500);
+      };
+
+      const updateField = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+      };
+
+      const handleEmocionToggle = (emocion) => {
+        setFormData(prev => {
+          const actual = prev.emocionesDominantes || [];
+          const existe = actual.includes(emocion);
+          return {
+            ...prev,
+            emocionesDominantes: existe 
+              ? actual.filter(e => e !== emocion) 
+              : [...actual, emocion]
+          };
+        });
+      };
+
+      const requestResetSession = () => {
+        setModalConfirm({
+          show: true,
+          title: '¿Reiniciar Proceso Actual?',
+          message: 'Esta acción limpiará los campos de la sesión actual. Los casos guardados en tu bitácora se conservarán intactos.',
+          onConfirm: () => {
+            setFormData({ ...INITIAL_FORM_DATA, idCaso: Date.now() });
+            setPasoActual(1);
+            setAuditoriaFeedback('');
+            setModalConfirm({ show: false, title: '', message: '', onConfirm: null });
+            showToast('Proceso reiniciado correctamente.', 'info');
+          }
+        });
+      };
+
+      const guardarCasoEnColeccion = () => {
+        if (!formData.situacion && !formData.xRaiz) {
+          showToast('Ingresa al menos la situación o la X Raíz antes de guardar este caso.', 'warning');
+          return;
+        }
+
+        const nuevoCaso = {
+          ...formData,
+          fechaModificacion: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        };
+
+        setListaCasos(prev => {
+          const existeIdx = prev.findIndex(c => c.idCaso === formData.idCaso);
+          if (existeIdx >= 0) {
+            const copia = [...prev];
+            copia[existeIdx] = nuevoCaso;
+            return copia;
+          } else {
+            return [nuevoCaso, ...prev];
+          }
+        });
+
+        showToast('¡Caso guardado en tus registros personales!', 'success');
+      };
+
+      const cargarCaso = (caso) => {
+        setFormData(caso);
+        setPasoActual(1);
+        setTabActiva('proceso');
+        showToast(`Caso "${caso.tituloCaso || 'Sin título'}" cargado con éxito.`, 'info');
+      };
+
+      const borrarCaso = (idCaso) => {
+        setModalConfirm({
+          show: true,
+          title: '¿Eliminar Caso Guardado?',
+          message: '¿Estás seguro de que deseas eliminar este registro de tu lista?',
+          onConfirm: () => {
+            setListaCasos(prev => prev.filter(c => c.idCaso !== idCaso));
+            setModalConfirm({ show: false, title: '', message: '', onConfirm: null });
+            showToast('Caso eliminado de los registros.', 'info');
+          }
+        });
+      };
+
+      const hablarTexto = (texto) => {
+        if (!('speechSynthesis' in window)) {
+          showToast('Tu navegador no soporta lectura por voz.', 'warning');
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(texto);
+        utterance.lang = 'es-ES';
+        utterance.rate = 0.95;
+        window.speechSynthesis.speak(utterance);
+        showToast('Reproduciendo en voz alta...', 'info');
+      };
+
+      const handleDiagnosticoPilaresAI = async () => {
+        setLoadingAI('escaner');
+        setAiError('');
+        try {
+          const prompt = `Puntuaciones de Autogobierno del usuario (del 1 al 10):
+- Relaciones & Entorno: ${pilares.relaciones}/10
+- Trabajo & Propósito: ${pilares.trabajo}/10
+- Economía & Autonomía: ${pilares.finanzas}/10
+- Futuro & Decisión Propia: ${pilares.futuro}/10
+
+Índice Global: ${indiceAutogobierno}%.
+Pilar más crítico: ${pilarCritico.nombre} (${pilarCritico.valor}/10).
+
+Entrega un análisis sintético en 3 párrafos breves:
+1. Diagnóstico objetivo del estado actual.
+2. La hipótesis de qué "X" o causa raíz suele gobernar cuando el pilar de ${pilarCritico.nombre} se debilita.
+3. El primer movimiento estratégico recomendable para la Etapa 1.`;
+
+          const text = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          setEscanerDiagnostico(text.trim());
+        } catch (err) {
+          setAiError('No se pudo generar el análisis del escáner en este momento.');
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const handleGenerarAbanicoAI = async () => {
+        if (!formData.situacion && !formData.hechosObjetivos) {
+          showToast('Describe primero la situación o los hechos objetivos.', 'warning');
+          return;
+        }
+        setLoadingAI('abanico');
+        setAiError('');
+        try {
+          const prompt = `Situación descrita: ${formData.situacion || 'No especificada'}
+Hechos objetivos: ${formData.hechosObjetivos || 'No especificados'}
+Interpretación actual del usuario: ${formData.miInterpretacion || 'No especificada'}
+
+Basado en la filosofía FEXADEL, genera exactamente 2 perspectivas alternativas objetivas, realistas y constructivas.
+Responde strictly en formato JSON con la siguiente estructura:
+{
+  "perspectiva1": "...",
+  "perspectiva2": "..."
+}`;
+          const raw = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (parsed.perspectiva1) updateField('perspectivaAlternativa1', parsed.perspectiva1);
+            if (parsed.perspectiva2) updateField('perspectivaAlternativa2', parsed.perspectiva2);
+            showToast('Perspectivas objetivas generadas.', 'success');
+          } else {
+            updateField('perspectivaAlternativa1', raw.slice(0, 180));
+          }
+        } catch (err) {
+          setAiError('No se pudo conectar con el copiloto IA. Por favor intenta de nuevo.');
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const handleDetectarXRaizAI = async () => {
+        if (!formData.sintomaVisible && !formData.situacion) {
+          showToast('Indica tu síntoma visible o tu situación actual primero.', 'warning');
+          return;
+        }
+        setLoadingAI('xRaiz');
+        setAiError('');
+        try {
+          const prompt = `Situación del usuario: ${formData.situacion}
+Síntoma visible: ${formData.sintomaVisible}
+Lo que cree que hay debajo: ${formData.preguntaSubyacente}
+
+Genera una única frase contundente y quirúrgica que exprese la causa raíz (La X) que está gobernando al usuario. 
+Comienza con: "Me está gobernando..."
+Ejemplo: "Me está gobernando el miedo a perder el control y la creencia de que si fracaso pierdo todo mi valor."`;
+          const text = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          const cleanText = text.replace(/^["']|["']$/g, '').trim();
+          updateField('xRaiz', cleanText);
+          showToast('X Raíz identificada.', 'success');
+        } catch (err) {
+          setAiError('Error al analizar la causa raíz con IA.');
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const handleGenerarContrapreguntaAI = async () => {
+        setLoadingAI('contrapregunta');
+        setAiError('');
+        try {
+          const prompt = `Barrera mental: ${formData.barreraSeleccionada}
+Situación del usuario: ${formData.situacion || 'No especificada'}
+X Raíz identificada: ${formData.xRaiz || 'No especificada'}
+
+Formula una única Contrapregunta X corta, provocadora y directa al estilo Fer Delgado para desarmar la excusa o bloqueo mental del usuario. Debe hacerle ver la inconsistencia de su miedo.`;
+          const text = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          updateField('respuestaContrapregunta', `[Respuesta guiada por IA]: ${text.trim()}`);
+          showToast('Contrapregunta disruptiva generada.', 'success');
+        } catch (err) {
+          setAiError('No se pudo generar la contrapregunta en este momento.');
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const handleAuditarPlanAI = async () => {
+        if (!formData.planQue) {
+          showToast('Define qué harás exactamente en tu Plan X antes de auditarlo.', 'warning');
+          return;
+        }
+        setLoadingAI('auditoria');
+        setAiError('');
+        try {
+          const prompt = `Plan X del usuario:
+- QUÉ: ${formData.planQue}
+- CUÁNDO: ${formData.planCuando}
+- CÓMO: ${formData.planComo}
+- HITO MEDIBLE: ${formData.planHito}
+
+Evalúa quirúrgicamente este plan. ¿Es específico, posible y libre de ambigüedades? Da un diagnóstico de 3 líneas señalando posibles puntos ciegos o sugiriendo un ajuste para asegurar que no haya excusas de ejecución.`;
+          const text = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          setAuditoriaFeedback(text.trim());
+          showToast('Auditoría completada.', 'success');
+        } catch (err) {
+          setAiError('No se pudo completar la auditoría del plan.');
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const handleEnviarChatAI = async (e) => {
+        e.preventDefault();
+        if (!inputChat.trim() || loadingAI === 'chat') return;
+
+        const userMsg = inputChat.trim();
+        setInputChat('');
+        setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+        setLoadingAI('chat');
+
+        try {
+          const prompt = `Historial breve: ${JSON.stringify(chatMessages.slice(-4))}
+Usuario pregunta/comenta: ${userMsg}
+
+X Raíz actual del usuario (si existe): ${formData.xRaiz || 'Sin definir'}
+Situación del usuario: ${formData.situacion || 'Sin definir'}
+
+Responde de forma concisa (máximo 120 palabras), directa y enfocado en la responsabilidad y autogobierno del usuario.`;
+
+          const responseText = await callGeminiAPI(prompt, SYSTEM_INSTRUCTION_FEXADEL);
+          setChatMessages(prev => [...prev, { role: 'assistant', text: responseText.trim() }]);
+        } catch (err) {
+          setChatMessages(prev => [...prev, { role: 'assistant', text: 'No pude procesar tu mensaje. Inténtalo de nuevo.' }]);
+        } finally {
+          setLoadingAI(null);
+        }
+      };
+
+      const guardarEnBitacora = () => {
+        if (!formData.xRaiz || !formData.planQue) {
+          showToast('Completa al menos la Etapa 3 (Encontrar la X) y la Etapa 6 (Plan X).', 'warning');
+          return;
+        }
+
+        const nuevoItem = {
+          id: Date.now(),
+          fecha: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }),
+          xRaiz: formData.xRaiz,
+          planQue: formData.planQue,
+          planCuando: formData.planCuando,
+          planComo: formData.planComo,
+          planHito: formData.planHito,
+          estado: formData.estadoEjecucion,
+          evidenciaX: formData.evidenciaX,
+          reajusteX: formData.reajusteX,
+          situacionOriginal: formData.situacion
+        };
+
+        setBitacora(prev => [nuevoItem, ...prev]);
+        guardarCasoEnColeccion();
+        showToast('Plan X guardado en tu Bitácora y Colección.', 'success');
+      };
+
+      const copiarFichaAlPortapapeles = () => {
+        const textoFicha = `
+--- FICHA DE AUTOGOBIERNO METODO FEXADEL ---
+Autoría: Fer Delgado · Autogobierno con Propósito
+Caso: ${formData.tituloCaso || 'Sin título'}
+
+1. SITUACIÓN / PUNTO DE PARTIDA:
+${formData.situacion || 'No especificada'}
+
+2. LA X ENCONTRADA (Causa raíz que estaba gobernando):
+${formData.xRaiz || 'No identificada aún'}
+
+3. RECONSTRUCCIÓN & TRAMPOLÍN:
+- Creencia desmontada: ${formData.creenciaHeredada || 'N/A'}
+- Trampolín de aprendizaje: ${formData.trampolinAprendizaje || 'N/A'}
+
+4. PLAN X DE ACCIÓN:
+- Qué: ${formData.planQue || 'N/A'}
+- Cuándo: ${formData.planCuando || 'N/A'}
+- Cómo: ${formData.planComo || 'N/A'}
+- Hito Medible: ${formData.planHito || 'N/A'}
+
+5. ESTADO DE AUTOGOBIERNO:
+${formData.estadoEjecucion === 'hecho' ? 'EJECUTADO - Evidencia: ' + formData.evidenciaX : formData.estadoEjecucion === 'no_hecho' ? 'REAJUSTADO - Motivo: ' + formData.reajusteX : 'PENDIENTE DE EJECUCIÓN'}
+---------------------------------------------
+        `.trim();
+
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(textoFicha);
+          } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = textoFicha;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+          }
+          showToast('¡Ficha copiada al portapapeles!', 'success');
+        } catch (e) {
+          showToast('No se pudo copiar automáticamente en este entorno.', 'warning');
+        }
+      };
+
+      const descargarMarkdown = () => {
+        const mdContent = `# Ficha de Autogobierno Método FEXADEL
+**Caso:** ${formData.tituloCaso}
+**Fecha:** ${new Date().toLocaleDateString('es-ES')}
+
+## 1. Frenar (Punto de Partida)
+${formData.situacion || 'No especificada'}
+
+## 2. Entender (Hechos vs Narrativa)
+* **Hechos:** ${formData.hechosObjetivos || 'Sin especificar'}
+* **Interpretación:** ${formData.miInterpretacion || 'Sin especificar'}
+
+## 3. Encontrar la X
+> **La X Raíz:** ${formData.xRaiz || 'No definida'}
+
+## 4. Afirmar
+* **Creencia Desmontada:** ${formData.creenciaHeredada || 'N/A'}
+* **Trampolín X:** ${formData.trampolinAprendizaje || 'N/A'}
+
+## 5. Plan X Ejecutable
+* **Qué:** ${formData.planQue || 'N/A'}
+* **Cuándo:** ${formData.planCuando || 'N/A'}
+* **Cómo:** ${formData.planComo || 'N/A'}
+* **Hito Medible:** ${formData.planHito || 'N/A'}
+`;
+        const blob = new Blob([mdContent], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `FEXADEL_${(formData.tituloCaso || 'Caso').replace(/\s+/g, '_')}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Archivo Markdown descargado.', 'success');
+      };
+
+      const ejecutarImpresion = () => {
+        window.print();
+      };
+
+      const trasladarPilarCriticoAProceso = () => {
+        updateField('situacion', `Afectación en mi pilar de ${pilarCritico.nombre} (Puntuación actual: ${pilarCritico.valor}/10). Siento que no estoy tomando las decisiones en esta área...`);
+        setPasoActual(1);
+        setTabActiva('proceso');
+        showToast(`Trasladado pilar "${pilarCritico.nombre}" a la Etapa 1`, 'info');
+      };
+
+      const abrirCheckoutLibro = (libro) => {
+        setModalPago({ show: true, libro });
+      };
+
+      const EtapaIconoActual = etapaActualInfo.icon;
+
+      return (
+        <div className="max-w-5xl mx-auto space-y-6 pb-12">
+          
+          {/* MODAL DE CONFIRMACIÓN */}
+          {modalConfirm.show && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn no-print">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+                <div className="flex items-center gap-3 text-amber-400">
+                  <AlertTriangle className="w-6 h-6 shrink-0" />
+                  <h3 className="text-lg font-bold text-white">{modalConfirm.title}</h3>
+                </div>
+                <p className="text-sm text-slate-300 leading-relaxed">{modalConfirm.message}</p>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => setModalConfirm({ show: false, title: '', message: '', onConfirm: null })}
+                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={modalConfirm.onConfirm}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL DE PAGO DE LIBROS */}
+          {modalPago.show && modalPago.libro && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn no-print">
+              <div className="bg-slate-800 border border-amber-500/50 rounded-2xl max-w-lg w-full p-6 space-y-5 shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+                <div className="flex items-start justify-between border-b border-slate-700 pb-3">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-800">
+                      Recurso Especial
+                    </span>
+                    <h3 className="text-xl font-extrabold text-white mt-1">{modalPago.libro.titulo}</h3>
+                    <p className="text-xs text-slate-300">{modalPago.libro.subtitulo}</p>
+                  </div>
+                  <button 
+                    onClick={() => setModalPago({ show: false, libro: null })}
+                    className="text-slate-400 hover:text-white p-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-semibold">{modalPago.libro.formato}</span>
+                    <span className="text-lg font-black text-amber-300">{modalPago.libro.precio}</span>
+                  </div>
+                  <ul className="text-xs text-slate-300 space-y-1.5 pt-1">
+                    {modalPago.libro.puntosClave.map((pt, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <span>{pt}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <a
+                    href={modalPago.libro.linkPago}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      showToast('Redirigiendo a Hotmart...', 'info');
+                      setModalPago({ show: false, libro: null });
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg transition-all"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Adquirir Ahora en Pasarela Segura</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <p className="text-[11px] text-center text-slate-400">
+                    🔒 Pago 100% seguro con garantía Hotmart.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TOAST NOTIFICATION */}
+          {toastMsg.show && (
+            <div className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl border shadow-2xl flex items-center gap-2 text-xs font-bold animate-fadeIn no-print ${
+              toastMsg.type === 'success' ? 'bg-emerald-950 text-emerald-200 border-emerald-500' :
+              toastMsg.type === 'warning' ? 'bg-amber-950 text-amber-200 border-amber-500' :
+              'bg-indigo-950 text-indigo-200 border-indigo-500'
+            }`}>
+              <Info className="w-4 h-4 shrink-0" />
+              <span>{toastMsg.text}</span>
+            </div>
+          )}
+
+          {/* HEADER PRINCIPAL */}
+          <header className="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-5 md:p-6 shadow-xl backdrop-blur-sm relative overflow-hidden no-print">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+              <div>
+                <div className="flex items-center gap-2 text-indigo-400 font-semibold tracking-wider text-xs uppercase mb-1">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                  Fer Delgado · Autogobierno con Propósito
+                </div>
+                <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                  Método FEXADEL <span className="text-slate-400 text-lg font-normal">| Mini-App Integral</span>
+                </h1>
+                <p className="text-slate-300 text-sm mt-1 max-w-2xl">
+                  Curso digital de 7 etapas para hombres que quieren dejar de vivir en automático, recuperar el control de su vida y volver a decidir con claridad, firmeza y propósito.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+                <button 
+                  onClick={() => updateField('safetyAlert', !formData.safetyAlert)}
+                  className="flex items-center gap-2 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-xl text-xs font-medium transition-all"
+                  title="Regla de seguridad y apoyo profesional"
+                >
+                  <Shield className="w-4 h-4 text-rose-400" />
+                  <span>Seguridad</span>
+                </button>
+              </div>
+            </div>
+
+            {/* TAB NAVIGATION */}
+            <div className="flex flex-wrap gap-2 mt-6 pt-4 border-t border-slate-700/60">
+              <button
+                onClick={() => setTabActiva('proceso')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all ${
+                  tabActiva === 'proceso'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <Compass className="w-4 h-4" />
+                <span>Guía Maestra 7 Etapas</span>
+              </button>
+
+              <button
+                onClick={() => setTabActiva('escaner')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all ${
+                  tabActiva === 'escaner'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <Sliders className="w-4 h-4" />
+                <span>Escáner Pilares</span>
+              </button>
+
+              <button
+                onClick={() => setTabActiva('ficha')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all ${
+                  tabActiva === 'ficha'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>Mi Ficha X</span>
+              </button>
+
+              <button
+                onClick={() => setTabActiva('bitacora')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all relative ${
+                  tabActiva === 'bitacora'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <Folder className="w-4 h-4" />
+                <span>Mis Casos Guardados</span>
+                {listaCasos.length > 0 && (
+                  <span className="bg-amber-500 text-slate-950 font-bold text-xs px-1.5 py-0.5 rounded-full ml-1">
+                    {listaCasos.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setTabActiva('copiloto')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all ${
+                  tabActiva === 'copiloto'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Copiloto Live</span>
+              </button>
+
+              <button
+                onClick={() => setTabActiva('libros')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all relative ${
+                  tabActiva === 'libros'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/30'
+                    : 'bg-amber-950/40 text-amber-300 border border-amber-800/60 hover:bg-amber-900/60'
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4 text-amber-400" />
+                <span>Libros & Ayuda Extra</span>
+              </button>
+
+              <button
+                onClick={() => setTabActiva('manual')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-medium transition-all ${
+                  tabActiva === 'manual'
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Filosofía</span>
+              </button>
+            </div>
+          </header>
+
+          {/* BANNER DE REGLA DE SEGURIDAD */}
+          {formData.safetyAlert && (
+            <div className="bg-rose-950/80 border-2 border-rose-600/80 rounded-2xl p-5 text-slate-100 shadow-2xl relative animate-fadeIn no-print">
+              <div className="flex items-start gap-4">
+                <AlertTriangle className="w-8 h-8 text-rose-400 shrink-0 mt-0.5" />
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-rose-200">
+                    Regla de Seguridad Profesional FEXADEL
+                  </h3>
+                  <p className="text-sm text-slate-200 leading-relaxed">
+                    El Método FEXADEL es una herramienta para la clarificación personal y la acción consciente. 
+                    <strong className="text-white"> No sustituye la atención médica, psiquiátrica ni psicológica especializada.</strong>
+                  </p>
+                  <p className="text-xs text-rose-200 bg-rose-900/50 p-3 rounded-xl border border-rose-700/50">
+                    Ante señales de riesgo de autolesión o daño a terceros, adicciones graves, crisis desorganizativas severas o depresión clínica profunda, detén el uso autónomo de esta herramienta y busca apoyo especializado de inmediato.
+                  </p>
+                  <div className="pt-2 flex gap-3">
+                    <button 
+                      onClick={() => updateField('safetyAlert', false)}
+                      className="px-4 py-1.5 bg-rose-800 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold"
+                    >
+                      Comprendido, continuar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* NOTIFICACIÓN DE ERROR IA */}
+          {aiError && (
+            <div className="bg-rose-900/80 border border-rose-500 text-rose-200 px-4 py-3 rounded-xl flex items-center justify-between text-sm animate-fadeIn no-print">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+                <span>{aiError}</span>
+              </div>
+              <button onClick={() => setAiError('')} className="text-xs font-bold underline">Descartar</button>
+            </div>
+          )}
+
+          {/* TAB 1: PROCESO (7 ETAPAS) */}
+          {tabActiva === 'proceso' && (
+            <div className="space-y-6">
+              
+              {/* TITULO Y RENOMBRADO DEL CASO */}
+              <div className="bg-slate-800/80 border border-slate-700/60 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+                <div className="flex items-center gap-3 flex-1">
+                  <FolderPlus className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={formData.tituloCaso || ''}
+                    onChange={(e) => updateField('tituloCaso', e.target.value)}
+                    placeholder="Título de tu caso (Ej: Crisis Profesional, Conflicto con mi Socio)"
+                    className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-sm font-bold text-white w-full focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    onClick={guardarCasoEnColeccion}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Guardar Caso
+                  </button>
+                </div>
+              </div>
+
+              {/* BARRA DE PROGRESO */}
+              <div className="bg-slate-800/80 border border-slate-700/60 p-4 rounded-2xl flex items-center justify-between gap-4 no-print">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-950 border border-indigo-700 text-indigo-300 flex items-center justify-center font-bold text-sm">
+                    {pasoActual}/7
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-300">Progreso del Diagnóstico</h4>
+                    <p className="text-xs text-slate-400">Etapa actual: {etapaActualInfo.nombre}</p>
+                  </div>
+                </div>
+
+                <div className="flex-1 max-w-xs hidden sm:block">
+                  <div className="w-full bg-slate-900 rounded-full h-2 border border-slate-700 overflow-hidden">
+                    <div 
+                      className="bg-indigo-500 h-full transition-all duration-500" 
+                      style={{ width: `${Math.round((pasoActual / 7) * 100)}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-bold block text-right mt-1">
+                    {Math.round((pasoActual / 7) * 100)}% Completado
+                  </span>
+                </div>
+              </div>
+
+              {/* STEPPER */}
+              <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 shadow-sm overflow-x-auto no-print">
+                <div className="flex items-center justify-between min-w-[650px] gap-2">
+                  {ETAPAS.map((etapa) => {
+                    const esActual = pasoActual === etapa.id;
+                    const esCompletado = pasoActual > etapa.id;
+
+                    return (
+                      <button
+                        key={etapa.id}
+                        onClick={() => setPasoActual(etapa.id)}
+                        className={`flex flex-col items-center p-2 rounded-xl transition-all flex-1 text-center relative ${
+                          esActual 
+                            ? 'bg-slate-700 border border-slate-500 scale-[1.03] shadow-md' 
+                            : esCompletado 
+                              ? 'opacity-80 hover:opacity-100' 
+                              : 'opacity-50 hover:opacity-80'
+                        }`}
+                      >
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm mb-1 border ${
+                          esActual 
+                            ? etapa.color 
+                            : esCompletado 
+                              ? 'bg-emerald-950/60 text-emerald-400 border-emerald-700/60' 
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {esCompletado ? <Check className="w-4 h-4" /> : etapa.key}
+                        </div>
+                        <span className="text-xs font-medium text-slate-200 truncate w-full">{etapa.nombre}</span>
+                        <span className="text-[10px] text-slate-400">Paso {etapa.id}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* CARD DE ETAPA ACTIVA */}
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6">
+                
+                <div className="flex items-start justify-between border-b border-slate-700 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-3 rounded-2xl border ${etapaActualInfo.color}`}>
+                      <EtapaIconoActual className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Etapa {etapaActualInfo.id} de 7
+                      </div>
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <span>{etapaActualInfo.key} — {etapaActualInfo.nombre}</span>
+                      </h2>
+                      <p className="text-sm text-slate-300">{etapaActualInfo.subtitulo}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={requestResetSession}
+                    className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-xl transition no-print"
+                    title="Reiniciar esta sesión"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* PASO 1: FRENAR */}
+                {pasoActual === 1 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-sky-950/30 border border-sky-800/40 p-4 rounded-xl text-sm text-sky-200">
+                      <strong className="text-sky-300">Regla de inicio:</strong> Saca la situación del ruido. Sin juzgarte, describe objetivamente qué está ocurriendo en este momento de tu vida.
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-semibold text-slate-200">
+                        ¿Qué estás viviendo actualmente?
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={formData.situacion}
+                        onChange={(e) => updateField('situacion', e.target.value)}
+                        placeholder="Ej: Tengo 42 años, atravesé una separación hace 6 meses y siento que laboralmente sigo avanzando, pero interiormente perdí la dirección..."
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-semibold text-slate-200">
+                        ¿Qué sensaciones o estados prevalecen en tu día a día?
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Ansiedad por el futuro', 'Sensación de estancamiento', 'Sabor a fracaso', 'Piloto automático', 'Ira o resentimiento', 'Agotamiento mental', 'Sensación de vacío', 'Culpa'].map((emocion) => {
+                          const activa = (formData.emocionesDominantes || []).includes(emocion);
+                          return (
+                            <button
+                              key={emocion}
+                              type="button"
+                              onClick={() => handleEmocionToggle(emocion)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                                activa 
+                                  ? 'bg-sky-600 border-sky-400 text-white shadow-sm' 
+                                  : 'bg-slate-900/60 border-slate-700 text-slate-300 hover:border-slate-500'
+                              }`}
+                            >
+                              {activa ? '✓ ' : '+ '}{emocion}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 2: ENTENDER */}
+                {pasoActual === 2 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-indigo-950/30 border border-indigo-800/40 p-4 rounded-xl text-sm text-indigo-200 space-y-1">
+                      <strong className="text-indigo-300">Herramienta: Abanico X</strong>
+                      <p>Separar la realidad de las narrativas. Una cosa son los hechos puros y otra muy distinta las historias que te cuentas sobre ellos.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          Hechos Objetivos (Sin interpretación)
+                        </label>
+                        <p className="text-xs text-slate-400">Lo que una cámara registraría objetivamente.</p>
+                        <textarea
+                          rows={3}
+                          value={formData.hechosObjetivos}
+                          onChange={(e) => updateField('hechosObjetivos', e.target.value)}
+                          placeholder="Ej: Ocurrió un divorcio. Cambié de puesto de trabajo. Pasaron 8 meses."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          Tu Interpretación Actual (La narrativa)
+                        </label>
+                        <p className="text-xs text-slate-400">Lo que tu mente concluye sobre esos hechos.</p>
+                        <textarea
+                          rows={3}
+                          value={formData.miInterpretacion}
+                          onChange={(e) => updateField('miInterpretacion', e.target.value)}
+                          placeholder="Ej: Arruiné mi vida, ya es muy tarde para reiniciar a mi edad."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-2">
+                          <Compass className="w-4 h-4" /> Despliega el Abanico X (Nuevas Perspectivas)
+                        </h4>
+                        
+                        <button
+                          type="button"
+                          onClick={handleGenerarAbanicoAI}
+                          disabled={loadingAI === 'abanico'}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-all shadow-md self-start sm:self-auto"
+                        >
+                          {loadingAI === 'abanico' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                          <span>✨ Generar Perspectivas con IA</span>
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={formData.perspectivaAlternativa1}
+                          onChange={(e) => updateField('perspectivaAlternativa1', e.target.value)}
+                          placeholder="Perspectiva 1: Es una etapa de transición para redefinir mis prioridades realistas..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 placeholder-slate-500 text-sm focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <input
+                          type="text"
+                          value={formData.perspectivaAlternativa2}
+                          onChange={(e) => updateField('perspectivaAlternativa2', e.target.value)}
+                          placeholder="Perspectiva 2: Cerré un ciclo que ya no funcionaba y ahora tengo libertad de reconstruirme..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 placeholder-slate-500 text-sm focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 3: ENCONTRAR LA X */}
+                {pasoActual === 3 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-amber-950/30 border border-amber-800/40 p-4 rounded-xl text-sm text-amber-200">
+                      <strong className="text-amber-300">Herramienta: Profundizador X</strong>
+                      <p>La X es la causa o creencia raíz que está gobernando tu comportamiento en secreto.</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          1. Síntoma visible (Lo que se nota por fuera)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.sintomaVisible}
+                          onChange={(e) => updateField('sintomaVisible', e.target.value)}
+                          placeholder="Ej: Procrastino decisiones importantes, evito entablar relaciones..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 placeholder-slate-500 text-sm focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-amber-300 font-bold">
+                          2. Pregunta Profundizadora X: ¿Qué hay debajo? ¿A qué le tienes miedo realmente si actúas?
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={formData.preguntaSubyacente}
+                          onChange={(e) => updateField('preguntaSubyacente', e.target.value)}
+                          placeholder="Ej: Si tomo la decisión, temo confirmar que no soy capaz..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 placeholder-slate-500 text-sm focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      <div className="bg-amber-950/50 border-2 border-amber-600/80 rounded-2xl p-4 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <label className="block text-base font-extrabold text-amber-200 flex items-center gap-2">
+                            <Target className="w-5 h-5 text-amber-400" />
+                            3. Define tu X Principal (La causa/creencia raíz)
+                          </label>
+
+                          <div className="flex items-center gap-2">
+                            {formData.xRaiz && (
+                              <button
+                                type="button"
+                                onClick={() => hablarTexto(formData.xRaiz)}
+                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-xs"
+                                title="Escuchar en voz alta"
+                              >
+                                <Volume2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={handleDetectarXRaizAI}
+                              disabled={loadingAI === 'xRaiz'}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-md"
+                            >
+                              {loadingAI === 'xRaiz' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-slate-950" />}
+                              <span>✨ Detectar X Raíz con IA</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <input
+                          type="text"
+                          value={formData.xRaiz}
+                          onChange={(e) => updateField('xRaiz', e.target.value)}
+                          placeholder="Ej: 'Me está gobernando el miedo a perder el control y la creencia de que si me equivoco pierdo todo mi valor.'"
+                          className="w-full bg-slate-900 border border-amber-500 rounded-xl p-3 text-amber-100 placeholder-slate-500 font-semibold text-sm focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 4: AFIRMAR */}
+                {pasoActual === 4 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-emerald-950/30 border border-emerald-800/40 p-4 rounded-xl text-sm text-emerald-200 space-y-1">
+                      <strong className="text-emerald-300">Herramientas: Mapa de Herencias & Trampolín X</strong>
+                      <p>Distingue entre lo que aprendiste/heredaste y lo que eliges hoy.</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="block text-sm font-semibold text-slate-200">
+                            Mapa de Herencias: La regla o mandato con el que vivías
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.creenciaHeredada}
+                            onChange={(e) => updateField('creenciaHeredada', e.target.value)}
+                            placeholder="Ej: 'Un hombre no debe mostrar vulnerabilidad ni fracasar jamás'"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-sm font-semibold text-slate-200">
+                            ¿Es tuyo o aprendido?
+                          </label>
+                          <select
+                            value={formData.esTuyoOAprendido}
+                            onChange={(e) => updateField('esTuyoOAprendido', e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500"
+                          >
+                            <option value="aprendido">Aprendido / Heredado de fuera</option>
+                            <option value="propio">Elegido conscientemente por mí</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-emerald-300 flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-emerald-400" />
+                          Trampolín X: ¿Para qué te sirve hoy lo vivido?
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={formData.trampolinAprendizaje}
+                          onChange={(e) => updateField('trampolinAprendizaje', e.target.value)}
+                          placeholder="Ej: La crisis vivida me enseñó a no depender de estatus externo..."
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 5: DESMONTAR */}
+                {pasoActual === 5 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-rose-950/30 border border-rose-800/40 p-4 rounded-xl text-sm text-rose-200">
+                      <strong className="text-rose-300">Herramienta: Contrapregunta X</strong>
+                      <p>Mismo fondo, otro ángulo. Cuestiona directamente la limitación para desmontar la excusa consciente.</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          Selecciona tu barrera o mecanismo de bloqueo principal:
+                        </label>
+                        <select
+                          value={formData.barreraSeleccionada}
+                          onChange={(e) => updateField('barreraSeleccionada', e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-rose-500"
+                        >
+                          <option value="Miedo al rechazo o fracaso">Miedo al rechazo o al fracaso</option>
+                          <option value="Procrastinación por perfeccionismo">Procrastinación por perfeccionismo</option>
+                          <option value="Sentimiento de culpa o autosabotaje">Sentimiento de culpa o autosabotaje</option>
+                          <option value="Dependencia de la aprobación externa">Dependencia de la aprobación externa</option>
+                          <option value="Parálisis por exceso de análisis">Parálisis por exceso de análisis</option>
+                        </select>
+                      </div>
+
+                      <div className="bg-slate-900/90 border border-rose-800/60 p-4 rounded-2xl space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <h4 className="text-sm font-bold text-rose-300 flex items-center gap-2">
+                            <Flame className="w-4 h-4 text-rose-400" />
+                            Contrapregunta X Disruptiva
+                          </h4>
+
+                          <button
+                            type="button"
+                            onClick={handleGenerarContrapreguntaAI}
+                            disabled={loadingAI === 'contrapregunta'}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 hover:bg-rose-600 disabled:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-all shadow-md"
+                          >
+                            {loadingAI === 'contrapregunta' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                            <span>✨ Pregunta Disruptiva con IA</span>
+                          </button>
+                        </div>
+
+                        <p className="text-sm text-slate-200 italic font-medium">
+                          {BARRERAS_MAP[formData.barreraSeleccionada] || ''}
+                        </p>
+
+                        <div className="pt-2">
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Responde a la contrapregunta sin justificarte:
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={formData.respuestaContrapregunta}
+                            onChange={(e) => updateField('respuestaContrapregunta', e.target.value)}
+                            placeholder="Ej: Es verdad. Nada vital se destruye, solo temo lastimar mi orgullo. Elijo asumir el riesgo real."
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-rose-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 6: EJECUTAR */}
+                {pasoActual === 6 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-blue-950/30 border border-blue-800/40 p-4 rounded-xl text-sm text-blue-200">
+                      <strong className="text-blue-300">Herramienta: Plan X</strong>
+                      <p>Sin ambigüedades. Claridad traducida en acción concreta y medible.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          1. ¿QUÉ harás exactamente?
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.planQue}
+                          onChange={(e) => updateField('planQue', e.target.value)}
+                          placeholder="Ej: Sostener la conversación difícil con mi socio"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          2. ¿CUÁNDO? (Fecha y hora)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.planCuando}
+                          onChange={(e) => updateField('planCuando', e.target.value)}
+                          placeholder="Ej: Mañana martes a las 10:00 AM"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          3. ¿CÓMO? (Primer paso ejecutable)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.planComo}
+                          onChange={(e) => updateField('planComo', e.target.value)}
+                          placeholder="Ej: Agendando la reunión formal y enviando la orden del día"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-sm font-semibold text-slate-200">
+                          4. Hito Medible (Evidencia innegable)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.planHito}
+                          onChange={(e) => updateField('planHito', e.target.value)}
+                          placeholder="Ej: Correo de confirmación o acuerdo firmado"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleAuditarPlanAI}
+                        disabled={loadingAI === 'auditoria'}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all shadow-md"
+                      >
+                        {loadingAI === 'auditoria' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
+                        <span>✨ Auditar Realismo del Plan X con IA</span>
+                      </button>
+
+                      {auditoriaFeedback && (
+                        <div className="mt-3 bg-indigo-950/60 border border-indigo-700/80 p-4 rounded-xl text-xs text-indigo-200 leading-relaxed space-y-1 animate-fadeIn">
+                          <strong className="text-indigo-300 block font-bold">Diagnóstico del Copiloto IA:</strong>
+                          <p className="whitespace-pre-line">{auditoriaFeedback}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* PASO 7: LIDERARSE */}
+                {pasoActual === 7 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div className="bg-purple-950/30 border border-purple-800/40 p-4 rounded-xl text-sm text-purple-200">
+                      <strong className="text-purple-300">Herramientas: Evidencia X & Reajuste X</strong>
+                      <p>Evaluación sin juicio moral. Consolida tu autoeficacia o recalibra sin drama.</p>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-700 p-4 rounded-2xl space-y-4">
+                      <div>
+                        <h4 className="text-xs uppercase font-bold text-slate-400">Tu Plan X Actual:</h4>
+                        <p className="text-base font-bold text-white mt-0.5">{formData.planQue || 'Aún no definido'}</p>
+                        <p className="text-xs text-slate-300">Programado para: {formData.planCuando || 'Sin fecha'}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800">
+                        <label className="block text-sm font-semibold text-slate-200 mb-2">
+                          ¿Ejecutaste el compromiso?
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => updateField('estadoEjecucion', 'hecho')}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border transition-all ${
+                              formData.estadoEjecucion === 'hecho'
+                                ? 'bg-emerald-600 border-emerald-400 text-white shadow-lg'
+                                : 'bg-slate-800 border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-4 h-4" /> Sí, lo ejecuté (Evidencia X)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => updateField('estadoEjecucion', 'no_hecho')}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border transition-all ${
+                              formData.estadoEjecucion === 'no_hecho'
+                                ? 'bg-rose-700 border-rose-500 text-white shadow-lg'
+                                : 'bg-slate-800 border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <RotateCcw className="w-4 h-4" /> No lo hice (Reajuste X)
+                          </button>
+                        </div>
+                      </div>
+
+                      {formData.estadoEjecucion === 'hecho' && (
+                        <div className="bg-emerald-950/40 border border-emerald-800/60 p-4 rounded-xl space-y-2 animate-fadeIn">
+                          <label className="block text-sm font-bold text-emerald-300 flex items-center gap-2">
+                            <Award className="w-4 h-4" /> Registra tu Evidencia X
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={formData.evidenciaX}
+                            onChange={(e) => updateField('evidenciaX', e.target.value)}
+                            placeholder="Ej: Sostuve la reunión a la hora pactada..."
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500"
+                          />
+                        </div>
+                      )}
+
+                      {formData.estadoEjecucion === 'no_hecho' && (
+                        <div className="bg-amber-950/40 border border-amber-800/60 p-4 rounded-xl space-y-2 animate-fadeIn">
+                          <label className="block text-sm font-bold text-amber-300 flex items-center gap-2">
+                            <RefreshCw className="w-4 h-4" /> Reajuste X
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={formData.reajusteX}
+                            onChange={(e) => updateField('reajusteX', e.target.value)}
+                            placeholder="Ej: El Plan era demasiado amplio. Recalibro enviando únicamente la convocatoria por correo..."
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-100 text-sm focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button
+                        onClick={guardarEnBitacora}
+                        className="flex items-center gap-2 px-5 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-purple-900/40 transition-all"
+                      >
+                        <Save className="w-4 h-4" /> Guardar Plan en Registros Personales
+                      </button>
+                      <button
+                        onClick={() => setTabActiva('ficha')}
+                        className="flex items-center gap-2 px-5 py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl font-medium text-sm transition-all"
+                      >
+                        <FileText className="w-4 h-4" /> Ver Mi Ficha de Autogobierno
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* CONTROLES DE NAVEGACIÓN */}
+                <div className="flex items-center justify-between pt-6 border-t border-slate-700/80 no-print">
+                  <button
+                    onClick={() => setPasoActual(prev => Math.max(1, prev - 1))}
+                    disabled={pasoActual === 1}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
+                      pasoActual === 1 
+                        ? 'opacity-30 cursor-not-allowed text-slate-500' 
+                        : 'bg-slate-700/60 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    <ArrowLeft className="w-4 h-4" /> Anterior
+                  </button>
+
+                  <span className="text-xs text-slate-400 font-medium">
+                    Etapa {pasoActual} de 7
+                  </span>
+
+                  {pasoActual < 7 ? (
+                    <button
+                      onClick={() => setPasoActual(prev => Math.min(7, prev + 1))}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition shadow-md shadow-indigo-900/30"
+                    >
+                      Siguiente <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setTabActiva('ficha')}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition shadow-md shadow-emerald-900/30"
+                    >
+                      Ver Resumen Ficha <CheckCircle2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: LIBROS & RECURSOS PREMIUM */}
+          {tabActiva === 'libros' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6 animate-fadeIn">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-700 pb-4">
+                <div>
+                  <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4" /> Formación & Material Complementario
+                  </div>
+                  <h2 className="text-2xl font-extrabold text-white flex items-center gap-2 mt-1">
+                    <BookMarked className="w-6 h-6 text-amber-400" /> Libros & Ayuda Adicional FEXADEL
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Profundiza en la metodología con los libros digitales oficiales de Fer Delgado.
+                  </p>
+                </div>
+
+                <div className="bg-amber-950/40 border border-amber-800/60 px-4 py-2 rounded-xl flex items-center gap-2 text-amber-300 text-xs font-bold self-start md:self-auto">
+                  <Lock className="w-4 h-4 shrink-0" />
+                  <span>Contenido de Pago Adicional</span>
+                </div>
+              </div>
+
+              {/* GRID DE LIBROS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6">
+                {libros.map((libro) => (
+                  <div 
+                    key={libro.id} 
+                    className="bg-slate-900 border border-slate-700 hover:border-amber-500/60 rounded-2xl p-5 space-y-4 flex flex-col justify-between transition-all hover:shadow-xl hover:-translate-y-1 relative overflow-hidden group"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-start gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-800 text-amber-400 border border-amber-500/30">
+                          {libro.badge}
+                        </span>
+                        <span className="text-base font-black text-amber-300">
+                          {libro.precio}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <h3 className="text-lg font-bold text-white group-hover:text-amber-200 transition-colors">
+                          {libro.titulo}
+                        </h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          {libro.subtitulo}
+                        </p>
+                      </div>
+
+                      <div className="text-[11px] font-semibold text-slate-300 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        📖 {libro.formato}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Incluye:</span>
+                        <ul className="text-xs text-slate-300 space-y-1.5">
+                          {libro.puntosClave.map((punto, i) => (
+                            <li key={i} className="flex items-start gap-1.5">
+                              <CheckCircle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                              <span className="leading-snug">{punto}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-800">
+                      <button
+                        onClick={() => abrirCheckoutLibro(libro)}
+                        className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 shadow-md transition-all"
+                      >
+                        <ShoppingBag className="w-4 h-4" />
+                        <span>Adquirir Libro en Hotmart</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-slate-900 border border-slate-700/80 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Info className="w-4 h-4 text-amber-400" /> ¿Cómo recibes tus libros?
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Al completar la compra segura en la pasarela de Hotmart, recibirás acceso inmediato a la descarga del material en tu correo electrónico.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setTabActiva('proceso')}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl shrink-0 transition"
+                >
+                  Volver a la Guía Gratuita
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ESCÁNER PILARES */}
+          {tabActiva === 'escaner' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6 animate-fadeIn">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-700 pb-4">
+                <div>
+                  <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
+                    Diagnóstico Rápido
+                  </div>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-6 h-6 text-indigo-400" /> Escáner de 4 Pilares de Autogobierno
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Evalúa del 1 al 10 qué tan al mando te sientes en cada área vital clave.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-700 px-4 py-3 rounded-2xl text-center self-start md:self-auto min-w-[150px]">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Índice Global</span>
+                  <span className={`text-2xl font-extrabold ${
+                    indiceAutogobierno >= 70 ? 'text-emerald-400' : indiceAutogobierno >= 45 ? 'text-amber-400' : 'text-rose-400'
+                  }`}>
+                    {indiceAutogobierno}%
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-900/80 border border-slate-700 p-4 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-bold text-slate-200">1. Relaciones & Entorno</label>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800">
+                      {pilares.relaciones} / 10
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={pilares.relaciones}
+                    onChange={(e) => setPilares(prev => ({ ...prev, relaciones: parseInt(e.target.value) }))}
+                    className="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg cursor-pointer"
+                  />
+                  <p className="text-[11px] text-slate-400">¿Decides con quién estar o te mantienes por culpa o miedo a la soledad?</p>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-700 p-4 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-bold text-slate-200">2. Trabajo & Propósito</label>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800">
+                      {pilares.trabajo} / 10
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={pilares.trabajo}
+                    onChange={(e) => setPilares(prev => ({ ...prev, trabajo: parseInt(e.target.value) }))}
+                    className="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg cursor-pointer"
+                  />
+                  <p className="text-[11px] text-slate-400">¿Estás construyendo tu proyecto o te mueves por inercia y exigencias externas?</p>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-700 p-4 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-bold text-slate-200">3. Economía & Autonomía</label>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800">
+                      {pilares.finanzas} / 10
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={pilares.finanzas}
+                    onChange={(e) => setPilares(prev => ({ ...prev, finanzas: parseInt(e.target.value) }))}
+                    className="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg cursor-pointer"
+                  />
+                  <p className="text-[11px] text-slate-400">¿Tus decisiones financieras te dan libertad o te someten a constante ansiedad?</p>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-700 p-4 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-sm font-bold text-slate-200">4. Futuro & Decisión Propia</label>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300 border border-indigo-800">
+                      {pilares.futuro} / 10
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={pilares.futuro}
+                    onChange={(e) => setPilares(prev => ({ ...prev, futuro: parseInt(e.target.value) }))}
+                    className="w-full accent-indigo-500 h-2 bg-slate-700 rounded-lg cursor-pointer"
+                  />
+                  <p className="text-[11px] text-slate-400">¿Tienes un rumbo claro elegido por ti o postergas las decisiones cruciales?</p>
+                </div>
+              </div>
+
+              <div className="bg-amber-950/40 border border-amber-800/60 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Área Prioritaria</span>
+                  <p className="text-base font-bold text-white">
+                    Pilar Crítico: {pilarCritico.nombre} ({pilarCritico.valor}/10)
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleDiagnosticoPilaresAI}
+                    disabled={loadingAI === 'escaner'}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-700 text-slate-950 font-bold rounded-xl text-xs transition shadow"
+                  >
+                    {loadingAI === 'escaner' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    <span>✨ Analizar con IA</span>
+                  </button>
+
+                  <button
+                    onClick={trasladarPilarCriticoAProceso}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs transition shadow"
+                  >
+                    <span>Llevar a Etapa 1</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {escanerDiagnostico && (
+                <div className="bg-slate-900 border border-slate-700 p-5 rounded-2xl space-y-3 animate-fadeIn">
+                  <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-300" /> Diagnóstico del Escáner
+                  </h4>
+                  <div className="text-xs text-slate-200 leading-relaxed whitespace-pre-line space-y-2">
+                    {escanerDiagnostico}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: FICHA X */}
+          {tabActiva === 'ficha' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6 animate-fadeIn">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-700 pb-4">
+                <div>
+                  <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
+                    Resumen de Salida (Exportable)
+                  </div>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-indigo-400" /> Ficha de Autogobierno FEXADEL
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">Caso: <span className="text-white font-bold">{formData.tituloCaso}</span></p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 no-print">
+                  <button
+                    onClick={copiarFichaAlPortapapeles}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl text-xs font-semibold transition"
+                  >
+                    <Copy className="w-4 h-4" /> Copiar
+                  </button>
+                  <button
+                    onClick={descargarMarkdown}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl text-xs font-semibold transition"
+                  >
+                    <Download className="w-4 h-4" /> Markdown
+                  </button>
+                  <button
+                    onClick={ejecutarImpresion}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow"
+                  >
+                    <Printer className="w-4 h-4" /> Imprimir / PDF
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print-card p-2 rounded-xl">
+                
+                <div className="bg-amber-950/30 border border-amber-800/50 p-5 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                    <Target className="w-4 h-4" /> La X Raíz Identificada
+                  </div>
+                  <p className="text-base font-extrabold text-amber-100">
+                    {formData.xRaiz || 'Aún no definida (Completa la Etapa 3)'}
+                  </p>
+                  {formData.sintomaVisible && (
+                    <p className="text-xs text-slate-300">
+                      <strong className="text-slate-200">Síntoma:</strong> {formData.sintomaVisible}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-blue-950/30 border border-blue-800/50 p-5 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-blue-400 font-bold text-xs uppercase tracking-wider">
+                    <Zap className="w-4 h-4" /> Plan X de Acción
+                  </div>
+                  <p className="text-base font-bold text-white">
+                    {formData.planQue || 'Aún no definido (Completa la Etapa 6)'}
+                  </p>
+                  <div className="text-xs text-slate-300 space-y-1 pt-1">
+                    <p><strong className="text-slate-200">Cuándo:</strong> {formData.planCuando || 'N/A'}</p>
+                    <p><strong className="text-slate-200">Hito Medible:</strong> {formData.planHito || 'N/A'}</p>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-950/30 border border-emerald-800/50 p-5 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                    <Award className="w-4 h-4" /> Trampolín de Aprendizaje
+                  </div>
+                  <p className="text-sm text-emerald-100 italic">
+                    "{formData.trampolinAprendizaje || 'Sin especificar'}"
+                  </p>
+                </div>
+
+                <div className="bg-purple-950/30 border border-purple-800/50 p-5 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-purple-400 font-bold text-xs uppercase tracking-wider">
+                    <Activity className="w-4 h-4" /> Estado de Autogobierno
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 bg-purple-900/80 text-purple-200 rounded-lg text-xs font-bold uppercase">
+                      {formData.estadoEjecucion === 'hecho' ? 'Ejecutado (Evidencia X)' : formData.estadoEjecucion === 'no_hecho' ? 'Reajustado' : 'Pendiente de Acción'}
+                    </span>
+                  </div>
+                  {formData.evidenciaX && (
+                    <p className="text-xs text-slate-300">
+                      <strong className="text-slate-200">Evidencia:</strong> {formData.evidenciaX}
+                    </p>
+                  )}
+                </div>
+
+              </div>
+
+              <div className="bg-slate-900 border border-slate-700/60 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4 no-print">
+                <div className="text-xs text-slate-400">
+                  "No vuelvas a vivir en automático. Encuentra qué te está dirigiendo y vuelve a decidir tú."
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={guardarCasoEnColeccion}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition"
+                  >
+                    Guardar Registro Completo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: BITÁCORA */}
+          {tabActiva === 'bitacora' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
+                <div>
+                  <div className="text-xs font-semibold text-purple-400 uppercase tracking-wider">
+                    Biblioteca Personal
+                  </div>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    <Folder className="w-6 h-6 text-purple-400" /> Mis Casos Guardados
+                  </h2>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setFormData({ ...INITIAL_FORM_DATA, idCaso: Date.now() });
+                    setPasoActual(1);
+                    setTabActiva('proceso');
+                    showToast('Nuevo caso iniciado.', 'info');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow"
+                >
+                  <FolderPlus className="w-4 h-4" /> Crear Nuevo Caso
+                </button>
+              </div>
+
+              {listaCasos.length === 0 ? (
+                <div className="bg-slate-900/60 border border-dashed border-slate-700 rounded-2xl p-8 text-center space-y-3">
+                  <Compass className="w-10 h-10 text-slate-500 mx-auto" />
+                  <p className="text-slate-300 font-medium text-sm">Aún no has guardado ningún caso.</p>
+                  <button
+                    onClick={() => setTabActiva('proceso')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition"
+                  >
+                    Iniciar la Guía Maestra
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {listaCasos.map((caso) => (
+                    <div key={caso.idCaso} className="bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3 relative">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                        <div>
+                          <h4 className="text-base font-bold text-white">{caso.tituloCaso || 'Caso sin título'}</h4>
+                          <span className="text-xs text-slate-400">Modificado: {caso.fechaModificacion}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => cargarCaso(caso)}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition"
+                          >
+                            Abrir y Modificar
+                          </button>
+                          <button
+                            onClick={() => borrarCaso(caso.idCaso)}
+                            className="p-1.5 text-slate-400 hover:text-rose-400 transition"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <strong className="text-amber-400 block uppercase">X Raíz:</strong>
+                          <p className="text-slate-200">{caso.xRaiz || 'No definida'}</p>
+                        </div>
+                        <div>
+                          <strong className="text-blue-400 block uppercase">Plan X:</strong>
+                          <p className="text-slate-200">{caso.planQue || 'No definido'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 6: COPILOTO LIVE */}
+          {tabActiva === 'copiloto' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-4 animate-fadeIn flex flex-col h-[520px]">
+              <div className="border-b border-slate-700 pb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-indigo-950 border border-indigo-700 rounded-xl text-indigo-400">
+                    <Bot className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Copiloto FEXADEL Live</h2>
+                    <p className="text-xs text-slate-300">Asistencia directa con IA entrenada en Autogobierno</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setChatMessages([{ role: 'assistant', text: 'Hola. Soy el Copiloto FEXADEL. ¿En qué situación o decisión estás sintiendo parálisis o falta de autogobierno en este momento?' }])}
+                  className="p-2 text-slate-400 hover:text-white rounded-lg"
+                  title="Limpiar chat"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 text-xs">
+                {chatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-[85%] p-3.5 rounded-2xl leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-none'
+                        : 'bg-slate-900 text-slate-200 border border-slate-700 rounded-bl-none'
+                    }`}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {loadingAI === 'chat' && (
+                  <div className="flex justify-start">
+                    <div className="bg-slate-900 text-slate-400 border border-slate-700 p-3 rounded-2xl flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                      <span>Analizando quirúrgicamente...</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <form onSubmit={handleEnviarChatAI} className="pt-2 border-t border-slate-700/80 flex gap-2">
+                <input
+                  type="text"
+                  value={inputChat}
+                  onChange={(e) => setInputChat(e.target.value)}
+                  placeholder="Escribe tu consulta sobre tu situación..."
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!inputChat.trim() || loadingAI === 'chat'}
+                  className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 7: FILOSOFÍA Y MANUAL */}
+          {tabActiva === 'manual' && (
+            <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-6 animate-fadeIn">
+              <div className="border-b border-slate-700 pb-4">
+                <div className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
+                  Marco Metodológico
+                </div>
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <BookOpen className="w-6 h-6 text-indigo-400" /> Filosofía de Autogobierno con Propósito
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl space-y-2">
+                  <h3 className="font-bold text-indigo-300 text-sm">Promesa Mínima y Defendible</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Dar claridad para identificar qué está detrás del problema y definir acciones concretas para empezar a cambiar la situación de manera autónoma.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl space-y-2">
+                  <h3 className="font-bold text-indigo-300 text-sm">Sin Moldes Impuestos</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    El Método FEXADEL no te dice en qué persona convertirte. Te ayuda a descubrirlo y a construirlo mediante tus propias decisiones.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Suite de Herramientas X</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 space-y-1">
+                    <strong className="text-sky-300 block">Abanico X</strong>
+                    <p className="text-slate-400">Separa hechos fríos de narrativas dramatizadas.</p>
+                  </div>
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 space-y-1">
+                    <strong className="text-amber-300 block">Profundizador X</strong>
+                    <p className="text-slate-400">Desciende del síntoma a la causa raíz gobernante.</p>
+                  </div>
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700 space-y-1">
+                    <strong className="text-rose-300 block">Contrapregunta X</strong>
+                    <p className="text-slate-400">Cuestiona y desmonta excusas conscientes.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FOOTER */}
+          <footer className="text-center text-xs text-slate-500 pt-4 border-t border-slate-800 no-print">
+            Fer Delgado · Método FEXADEL · Autogobierno con Propósito © 2026
+          </footer>
+
+        </div>
+      );
+    }
+
+    const container = document.getElementById('root');
+    const root = createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>
